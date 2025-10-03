@@ -361,3 +361,69 @@ window.addEventListener("click", async () => {
     try { await audioCtx.resume(); } catch {}
   }
 }, { once: true });
+
+// ====== KNOB INIT (auto) ======
+(function initKnobs(){
+  const tiles = document.querySelectorAll('.params .col');
+
+  tiles.forEach(col => {
+    const range = col.querySelector('input[type="range"]');
+    if (!range || range.classList.contains('keep-slider')) return;
+
+    // crea il disco grafico se manca
+    let face = col.querySelector('.knob-face');
+    if (!face) {
+      face = document.createElement('div');
+      face.className = 'knob-face';
+      col.insertBefore(face, col.firstChild); // knob sopra la label
+    }
+
+    const updateFace = () => {
+      const min = parseFloat(range.min || 0);
+      const max = parseFloat(range.max || 100);
+      const val = parseFloat(range.value);
+      const t   = (val - min) / (max - min);      // 0..1
+      const deg = -135 + t * 270;                 // sweep 270°
+      face.style.setProperty('--rot', deg + 'deg');
+    };
+
+    // sync all'input (così il tuo script.js continua a ricevere gli eventi)
+    updateFace();
+    range.addEventListener('input',  updateFace);
+    range.addEventListener('change', updateFace);
+
+    // drag orizzontale anche direttamente sul disco
+    face.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      face.setPointerCapture(e.pointerId);
+      const rect   = face.getBoundingClientRect();
+      const startX = e.clientX;
+      const min = parseFloat(range.min || 0);
+      const max = parseFloat(range.max || 100);
+      const startVal = parseFloat(range.value);
+
+      // quanto “corre” per pixel (drag 150px ≈ full range)
+      const scale = (max - min) / 150;
+
+      const onMove = (ev) => {
+        const dx = ev.clientX - startX;
+        let v = startVal + dx * scale;
+        v = Math.max(min, Math.min(max, v));
+        range.value = v;
+        range.dispatchEvent(new Event('input',  { bubbles:true }));
+        range.dispatchEvent(new Event('change', { bubbles:true }));
+      };
+
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        try { face.releasePointerCapture(e.pointerId); } catch {}
+      };
+
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    });
+  });
+})();
+
+

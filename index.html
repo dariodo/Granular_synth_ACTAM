@@ -4,96 +4,133 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Granular Synthesizer Advanced</title>
-  <!-- Bootstrap per layout e componenti -->
+
+  <!-- Tema custom -->
+  <link rel="stylesheet" href="styles.css">
+
+  <!-- (Opzionale) Bootstrap – se lo usavi per altre pagine puoi lasciarlo -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5/dist/css/bootstrap.min.css">
 </head>
 <body>
-  <div class="container mt-4">
-    <h1 class="text-center">Granular Synthesizer Advanced</h1>
-    
-    <!-- Canvas per waveform -->
-    <div class="row mt-4">
-      <div class="col-12">
-        <canvas id="waveformCanvas" width="800" height="200" class="w-100 border border-secondary"></canvas>
-      </div>
-    </div>
-    
-    <!-- Input file e controlli Play/Stop -->
-    <div class="row mt-4">
-      <div class="col-md-6">
-        <input type="file" id="audioFileInput" class="form-control" accept="audio/*">
-      </div>
-      <div class="col-md-6 text-end">
-        <button id="playButton" class="btn btn-primary">Play</button>
-        <button id="stopButton" class="btn btn-danger">Stop</button>
-        <button id="freezeBtn" class="btn btn-outline-secondary ms-2">Freeze (set scan=0)</button>
-      </div>
-    </div>
 
-    <!-- Controlli riga 1 -->
-    <div class="row mt-4 g-3">
-      <div class="col-md-2">
-        <label for="positionRange" class="form-label">
-          Position
-          <select id="positionTarget" class="form-select form-select-sm" style="width:auto">
-            <option value="0">Cursor A</option>
-            <option value="1">Cursor B</option>
-          </select>
-        </label>
-        <input type="range" id="positionRange" class="form-range" min="0" max="1" step="0.01" value="0">
-      </div>
-      <div class="col-md-2">
-        <label for="attackRange" class="form-label">Attack (s)</label>
-        <input type="range" id="attackRange" class="form-range" min="0.01" max="1" step="0.01" value="0.1">
-      </div>
-      <div class="col-md-2">
-        <label for="releaseRange" class="form-label">Release (s)</label>
-        <input type="range" id="releaseRange" class="form-range" min="0.01" max="1" step="0.01" value="0.1">
-      </div>
-      <div class="col-md-2">
-        <label for="densityRange" class="form-label">Density (grains/s)</label>
-        <input type="range" id="densityRange" class="form-range" min="1" max="100" step="1" value="10">
-      </div>
-      <div class="col-md-2">
-        <label for="spreadRange" class="form-label">Spread (s)</label>
-        <input type="range" id="spreadRange" class="form-range" min="0" max="1" step="0.01" value="0.1">
-      </div>
-      <div class="col-md-2">
-        <label for="panRange" class="form-label">Pan</label>
-        <input type="range" id="panRange" class="form-range" min="-1" max="1" step="0.1" value="0">
-      </div>
-    </div>
+  <div class="granular-ui">
+    <!-- PANNELLO CENTRALE -->
+    <div class="center-pane">
 
-    <!-- Controlli riga 2 -->
-    <div class="row mt-4 g-3">
-      <div class="col-md-2">
-        <label for="pitchRange" class="form-label">Pitch</label>
-        <input type="range" id="pitchRange" class="form-range" min="0.5" max="2" step="0.01" value="1">
+      <!-- Waveform window -->
+      <div class="wave-window">
+        <canvas id="waveformCanvas" width="800" height="220"></canvas>
+        <div class="playhead" id="playhead"></div>
       </div>
-      <div class="col-md-2">
-        <label for="volumeRange" class="form-label">Volume</label>
-        <input type="range" id="volumeRange" class="form-range" min="0" max="1" step="0.01" value="0.5">
-      </div>
-      <div class="col-md-2">
-        <label for="filterCutoffRange" class="form-label">Filter Cutoff (Hz)</label>
-        <input type="range" id="filterCutoffRange" class="form-range" min="100" max="10000" step="100" value="5000">
-      </div>
-      <div class="col-md-2">
-        <label for="lfoFreqRange" class="form-label">LFO Freq (Hz)</label>
-        <input type="range" id="lfoFreqRange" class="form-range" min="0.1" max="10" step="0.1" value="1">
-      </div>
-      <div class="col-md-2">
-        <label for="lfoDepthRange" class="form-label">LFO Depth</label>
-        <input type="range" id="lfoDepthRange" class="form-range" min="0" max="1" step="0.01" value="0.2">
-      </div>
-      <div class="col-md-2">
-        <label for="scanSpeedRange" class="form-label">Scan Speed</label>
-        <input type="range" id="scanSpeedRange" class="form-range" min="-0.1" max="0.1" step="0.001" value="0.01">
-      </div>
-    </div>
-  </div>
 
-  <!-- JS principale (gestisce UI e carica il Worklet via script.js) -->
+      <!-- Parametri (slider già esistenti, solo restyling) -->
+      <div class="params">
+
+        <div class="col" style="min-width:140px">
+          <label for="positionRange" class="small">
+            Position
+            <select id="positionTarget" class="form-select form-select-sm" style="width:auto; display:inline-block;">
+              <option value="0">Cursor A</option>
+              <option value="1">Cursor B</option>
+            </select>
+          </label>
+          <input type="range" id="positionRange" class="param-slider" min="0" max="1" step="0.01" value="0">
+        </div>
+
+        <div class="col">
+          <label for="attackRange" class="small">Attack (s)</label>
+          <input type="range" id="attackRange" class="param-slider" min="0.01" max="1" step="0.01" value="0.1">
+        </div>
+
+        <div class="col">
+          <label for="releaseRange" class="small">Release (s)</label>
+          <input type="range" id="releaseRange" class="param-slider" min="0.01" max="1" step="0.01" value="0.1">
+        </div>
+
+        <div class="col">
+          <label for="densityRange" class="small">Density (grains/s)</label>
+          <input type="range" id="densityRange" class="param-slider" min="1" max="100" step="1" value="10">
+        </div>
+
+        <div class="col">
+          <label for="spreadRange" class="small">Spread (s)</label>
+          <input type="range" id="spreadRange" class="param-slider" min="0" max="1" step="0.01" value="0.1">
+        </div>
+
+        <div class="col">
+          <label for="panRange" class="small">Pan</label>
+          <input type="range" id="panRange" class="param-slider" min="-1" max="1" step="0.1" value="0">
+        </div>
+
+        <div class="col">
+          <label for="pitchRange" class="small">Pitch</label>
+          <input type="range" id="pitchRange" class="param-slider" min="0.5" max="2" step="0.01" value="1">
+        </div>
+
+        <div class="col">
+          <label for="filterCutoffRange" class="small">Filter Cutoff (Hz)</label>
+          <input type="range" id="filterCutoffRange" class="param-slider" min="100" max="10000" step="100" value="5000">
+        </div>
+
+        <div class="col">
+          <label for="lfoFreqRange" class="small">LFO Freq (Hz)</label>
+          <input type="range" id="lfoFreqRange" class="param-slider" min="0.1" max="10" step="0.1" value="1">
+        </div>
+
+        <div class="col">
+          <label for="lfoDepthRange" class="small">LFO Depth</label>
+          <input type="range" id="lfoDepthRange" class="param-slider" min="0" max="1" step="0.01" value="0.2">
+        </div>
+
+        <div class="col">
+          <label for="scanSpeedRange" class="small">Scan Speed</label>
+          <input type="range" id="scanSpeedRange" class="param-slider" min="-0.1" max="0.1" step="0.001" value="0.01">
+        </div>
+        
+
+      </div><!-- /params -->
+    </div><!-- /center-pane -->
+
+    <!-- RAIL LATERALE -->
+    <aside class="side-rail">
+
+      <!-- Play -->
+      <button id="playButton" class="square-btn btn-play" aria-label="Play">
+        <svg class="icon" viewBox="0 0 24 24"><polygon points="7,5 19,12 7,19"></polygon></svg>
+      </button>
+
+      <!-- Stop -->
+      <button id="stopButton" class="square-btn btn-stop" aria-label="Stop">
+        <svg class="icon" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12"></rect></svg>
+      </button>
+
+      <!-- Freeze (imposta scan=0) -->
+      <button id="freezeBtn" class="square-btn btn-rec" aria-label="Freeze">
+        <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"></circle></svg>
+      </button>
+
+      <!-- Timer -->
+      <div class="time-display" id="timeDisplay">0:00/10:00</div>
+
+      <!-- Volume verticale -->
+      <div class="col center">
+        <input type="range" id="volumeRange" class="vertical" min="0" max="1" step="0.01" value="0.5" aria-label="Volume">
+        <div class="vertical-label">Master Volume</div>
+      </div>
+
+      <!-- Upload file (icona, input nascosto) -->
+      <label for="audioFileInput" class="square-btn" title="Carica file audio">
+        <svg class="icon" viewBox="0 0 24 24">
+          <path d="M12 3v10m0 0l-4-4m4 4l4-4M5 17h14v2H5z"/>
+        </svg>
+      </label>
+      <input type="file" id="audioFileInput" accept="audio/*" style="display:none"/>
+
+    </aside>
+  </div><!-- /granular-ui -->
+
+  <!-- JS principale -->
   <script src="script.js"></script>
 </body>
 </html>
+

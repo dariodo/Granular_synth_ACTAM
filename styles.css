@@ -1,37 +1,405 @@
-/* Stile generale */
-body {
-  background-color: #f8f9fa;
-  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+/* =========================================
+   Granular Synth – UI theme (image-matched)
+   ========================================= */
+
+/* ---- Palette ---- */
+:root{
+  --panel-red: #E74C3C;      /* corpo pannello */
+  --panel-red-dark:#D74335;
+  --rail-grey: #D8D8D8;      /* colonna laterale */
+  --rail-grey-dark:#BFBFBF;
+  --ink: #0B0B0B;            /* nero profondo */
+  --ink-70: #0b0b0bb3;
+  --white: #FFFFFF;
+  --tick: #1f1f1f;
+  --accent: #FF6A5B;         /* per playhead/hover */
+  --shadow: 0 10px 24px rgba(0,0,0,.18), 0 4px 10px rgba(0,0,0,.12);
 }
 
-/* Titolo */
-h1 {
-  font-weight: 700;
-  margin-bottom: 20px;
+/* ---- Sfondo puntinato come nell’immagine ---- */
+body{
+  margin:0;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 1px 1px, #cfcfcf55 1.2px, transparent 1.2px) 0 0/28px 28px,
+    #ffffff;
 }
 
-/* Canvas waveform */
-#waveformCanvas {
-  background-color: #fff;
-  border-radius: 8px;
+/* ---- Contenitore principale rosso ---- */
+.granular-ui{
+  background: var(--panel-red);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: 1fr 112px; /* pannello + rail laterale */
+  gap: 0;
+  max-width: 1300px;
+  margin: 28px auto;
+  border: 6px solid transparent; /* margine ottico */
 }
 
-/* Pulsanti Play / Stop */
-#playButton {
-  font-weight: 600;
+/* ---- Area centrale (wave + parametri) ---- */
+.center-pane{
+  padding: 18px 18px 18px 18px;
+  display: grid;
+  grid-template-rows: auto minmax(230px, auto); /* <-- 2a riga alta per i knob */
+  gap: 14px;
 }
 
-#stopButton {
-  font-weight: 600;
+/* ---- Finestra waveform nera ---- */
+.wave-window{
+  position: relative;
+  background: var(--ink);
+  border-radius: 6px;
+  padding: 10px;
+  height: 270px;
 }
 
-/* Slider */
-input[type=range] {
+/* Canvas a tutta area */
+.wave-window canvas,
+#waveformCanvas{
+  display: block;
+  width: 100%;
+  height: 250px; /* regola a piacere */
+  background: transparent;
+  border-radius: 4px;
+}
+
+/* Playhead rosso (se usi un div assoluto sopra al canvas) */
+.playhead{
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 10px;
+  width: 3px;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px #00000055;
+  pointer-events: none;
+  display: none;
+}
+
+/* ---- Barra parametri (knob + slider) ---- */
+.params{
+  display: grid;
+  grid-auto-columns: 1fr;
+  grid-auto-flow: column;
+  gap: 10px;
+  align-items: center;
+  justify-items: center;
+}
+
+/* Un parametro “knob” */
+.knob{
+  display: grid;
+  grid-template-rows: auto 18px;
+  justify-items: center;
+  gap: 6px;
+  min-width: 70px;
+}
+
+/* Disco del knob */
+.knob .face{
+  width: 54px;
+  height: 54px;
+  background: #111;           /* interno scuro come in immagine */
+  border: 4px solid var(--ink);
+  border-radius: 50%;
+  position: relative;
+  box-shadow: inset 0 0 0 2px #2b2b2b, 0 2px 6px rgba(0,0,0,.35);
+}
+
+/* Tacca del knob */
+.knob .face::after{
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 6px;
+  width: 3px;
+  height: 14px;
+  background: var(--rail-grey);
+  transform: translateX(-50%);
+  border-radius: 3px;
+}
+
+/* Etichetta sotto al knob */
+.knob label{
+  font-size: 12px;
+  color: #180A06;
+  letter-spacing: .2px;
+}
+
+/* ---- Slider orizzontali per parametri ---- */
+.param-slider{
+  width: 100%;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  background: #1a1a1a;
+  border-radius: 999px;
+  outline: none;
+  box-shadow: inset 0 0 0 2px #2b2b2b;
+}
+.param-slider::-webkit-slider-thumb{
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--rail-grey);
+  border: 2px solid var(--ink);
+  box-shadow: 0 2px 4px rgba(0,0,0,.35);
+  cursor: pointer;
+}
+.param-slider::-moz-range-thumb{
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--rail-grey);
+  border: 2px solid var(--ink);
+  box-shadow: 0 2px 4px rgba(0,0,0,.35);
   cursor: pointer;
 }
 
-/* Etichette */
-.form-label {
-  font-size: 0.9rem;
-  font-weight: 500;
+/* ---- Slider verticale (Volume) ---- */
+.vertical{
+  writing-mode: bt-lr; /* Firefox */
+  -webkit-appearance: slider-vertical;
+  width: 6px;
+  height: 180px;
+  padding: 0 10px;
 }
+.vertical::-webkit-slider-thumb{
+  width: 22px; height: 22px;
+}
+.vertical-label{
+  font-size: 12px;
+  margin-top: 6px;
+  text-align: center;
+}
+
+/* ---- Colonna laterale grigia con pulsanti ---- */
+.side-rail{
+  background: var(--rail-grey);
+  border-left: 10px solid var(--panel-red);
+  display: grid;
+  grid-template-rows: repeat(4, 1fr) auto 1fr;
+  align-items: center;
+  justify-items: center;
+  padding: 12px 10px;
+  gap: 12px;
+}
+
+/* Pulsanti quadrati (Play/Stop/Rec/Download) */
+.square-btn{
+  width: 64px;
+  height: 64px;
+  background: var(--panel-red);
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  box-shadow: 0 2px 0 var(--panel-red-dark), 0 6px 14px rgba(0,0,0,.25);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: transform .06s ease, filter .15s ease;
+  user-select: none;
+}
+.square-btn:hover{ filter: brightness(1.05); }
+.square-btn:active{ transform: translateY(1px) scale(.99); }
+
+/* Icone base (usa SVG o pseudo elementi nel markup) */
+.square-btn .icon{
+  width: 26px; height: 26px;
+  fill: var(--ink);
+}
+
+/* Piccolo display tempo (0:00/10:00) */
+.time-display{
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: #222;
+}
+
+/* ---- Play/Stop/Rec colori stati ---- */
+.btn-play .icon{ fill: var(--ink); }
+.btn-stop .icon{ fill: var(--ink); }
+.btn-rec  .icon{ fill: var(--ink); }
+.btn-rec.recording{ background:#D02121; }
+
+/* ---- Testi generali ---- */
+h1, h2, h3{ margin: 0 0 10px; color: var(--ink); }
+.small{ font-size: 12px; color: #2a2a2a; }
+
+/* ---- Utility ---- */
+.row{ display:flex; gap:12px; align-items:center; }
+.col{ display:flex; flex-direction:column; gap:8px; }
+.center{ display:grid; place-items:center; }
+
+/* ---- Accessibilità focus ---- */
+.square-btn:focus-visible,
+.param-slider:focus-visible,
+.vertical:focus-visible{
+  outline: 3px solid #000;
+  outline-offset: 2px;
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 720px){
+  .granular-ui{
+    grid-template-columns: 1fr;
+  }
+  .side-rail{
+    grid-template-columns: repeat(5, 70px);
+    grid-template-rows: auto;
+    justify-content: center;
+    border-left: none;
+    border-top: 10px solid var(--panel-red);
+  }
+  .center-pane{
+    grid-template-rows: auto auto;
+  }
+}
+
+/* ========== Bottoni legacy by id (se li avevi già) ========== */
+#playButton, #stopButton{
+  font-weight: 700;
+  letter-spacing:.2px;
+}
+
+/* ====== Knob layout (2 righe) ====== */
+.params{
+  display: grid;
+  grid-auto-flow: column;              /* riempi per colonne */
+  grid-template-rows: repeat(2, auto); /* esattamente 2 righe */
+  gap: 18px 24px;                      /* spazio righe x colonne */
+  align-items: start;
+  justify-items: center;
+  padding-top: 6px;
+}
+
+.params .col{
+  position: relative;
+  min-width: 128px;                    /* ogni “tile” */
+  display: grid;
+  grid-template-rows: auto auto;       /* knob sopra, label sotto */
+  justify-items: center;
+  gap: 8px;
+}
+
+/* nascondi la barra del range quando lo usiamo come knob */
+.params .col input.param-slider{
+  -webkit-appearance: none;
+  appearance: none;
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 88px;                         /* area sensibile al drag */
+  height: 88px;
+  opacity: 0;                          /* invisibile ma interattivo */
+  cursor: ew-resize;                   /* drag orizzontale */
+  background: transparent;
+  outline: none;
+  z-index: 3;
+}
+
+/* se vuoi mantenere qualche slider “normale” aggiungi la classe keep-slider */
+.params .col input.keep-slider{
+  position: static;
+  width: 100%;
+  height: 10px;
+  opacity: 1;
+  cursor: pointer;
+}
+
+/* ====== Knob grafico ====== */
+.knob-face{
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  background: #111;
+  border: 4px solid #0b0b0b;
+  box-shadow:
+    inset 0 0 0 2px #2b2b2b,
+    0 2px 6px rgba(0,0,0,.35);
+  position: relative;
+  transform: rotate(var(--rot, -135deg)); /* sweep -135°..+135° */
+  transition: transform .08s linear;
+}
+
+/* luce interna */
+.knob-face::before{
+  content:"";
+  position:absolute;
+  inset: 8px;
+  border-radius:50%;
+  background: radial-gradient(circle at 35% 35%, #333, #111 60%);
+}
+
+/* “tacca” */
+.knob-face::after{
+  content:"";
+  position:absolute;
+  left:50%; top:6px;
+  transform: translateX(-50%);
+  width: 3px; height: 20px;
+  border-radius: 2px;
+  background: #d8d8d8;
+  box-shadow: 0 0 0 1px #00000040;
+}
+
+/* hover/active */
+.params .col:hover .knob-face{ filter: brightness(1.05); }
+.params .col:active .knob-face{ filter: brightness(1.1); }
+
+/* etichetta sotto al knob */
+.params .col label{
+  font-size: 13.5px;
+  line-height: 1.15;
+  font-weight: 600;
+  color: #180a06;
+  text-align: center;
+}
+
+:root{
+  --wave-h: 250px;   /* già impostata */
+  --wave-pad: 10px;  /* padding interno della wave-window */
+}
+
+/* la wave-window resta relative, canvases assoluti */
+.wave-window{ position: relative; padding: var(--wave-pad); }
+
+/* overlay dei tools: non blocca i drag (pointer-events: none) */
+.wave-tools{
+  position: absolute;
+  top: calc(var(--wave-pad) + 10px);
+  right: calc(var(--wave-pad) + 10px);
+  z-index: 4;
+  pointer-events: none;
+}
+
+/* il bottone invece riceve gli eventi */
+.wave-load-btn{
+  pointer-events: auto;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--panel-red);
+  border: 2px solid #0b0b0b;
+  box-shadow: 0 2px 0 #c93b2f, 0 6px 12px rgba(0,0,0,.25);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: transform .06s ease, filter .15s ease;
+}
+.wave-load-btn:hover{ filter: brightness(1.05); }
+.wave-load-btn:active{ transform: translateY(1px) scale(.99); }
+
+.wave-load-btn .icon{
+  width: 18px; height: 18px; fill: #0b0b0b;
+}
+
+/* assicurati che i canvas stiano sotto, playhead sopra ma sotto i tools */
+#waveformCanvas{ z-index: 0; background:#000; }
+#overlayCanvas{  z-index: 1; pointer-events:none; background:transparent; }
+.playhead{ z-index: 3; }   /* tools = 4 */
+
