@@ -1,16 +1,16 @@
 // =============================================
 // worklet/granular-processor.js (AudioWorklet)
 // ---------------------------------------------
-// Versione "PRO" per-cursore (A/B) completa e stabile:
+// Versione "PRO" per-cursore (A/B):
 // - Parametri separati per A e B: attack, release, density, spread, pan, pitch,
-//   cutoff, lfoFreq, lfoDepth, scanSpeed
+//   cutoff, lfoFreq, lfoDepth, scanSpeed, gain
 // - Scanning indipendente per-cursore (A e B si muovono alla propria scanSpeed)
-// - "Freeze" gestito dal main settando scanSpeed=0 per il cursore selezionato
-// - Scheduler indipendente per A e B (density per-voice), con possibilità di
-//   spawn multipli nello stesso audio block
+// - "Freeze" è gestito dal main settando scanSpeed=0 per il cursore selezionato
+// - Scheduler indipendente per A e B (density per-voice), con spawn multipli nello stesso block
 // - Sintesi grano nel Worklet: inviluppo Hann, pitch (interp. lineare), pan equal-power
 // - Filtro 1-polo per-grano con cutoff modulato da LFO per-cursore (coeff a/b aggiornati a blocco)
-// - Nessun setInterval: timing sample-accurate, indipendente dalla UI
+//
+// MOD: invio posizioni verso il main ~30 FPS SOLO durante Play (per animare i marker UI)
 // =============================================
 
 class GranularProcessor extends AudioWorkletProcessor {
@@ -49,6 +49,10 @@ class GranularProcessor extends AudioWorkletProcessor {
 
     // Stato di riproduzione
     this.playing = false;
+
+    // --- MOD AGGIUNTA: throttling per sync UI (~30 FPS) ---
+    this.vizCounter = 0;
+    this.vizIntervalFrames = Math.floor(this.sampleRateOut / 30); // ~33 ms
 
     // Messaggistica dal main
     this.port.onmessage = (e) => {
@@ -99,7 +103,8 @@ class GranularProcessor extends AudioWorkletProcessor {
       cutoff: 5000,     // Hz
       lfoFreq: 1.0,     // Hz
       lfoDepth: 0.2,    // 0..1
-      scanSpeed: 0.01   // normalized/sec
+      scanSpeed: 0.01,  // normalized/sec
+      gain: 0.5         // per-cursore
     };
   }
 
@@ -229,6 +234,18 @@ class GranularProcessor extends AudioWorkletProcessor {
     // Avanza posizioni A/B (anche se non playing, per reattività)
     this._advancePositions(frames);
 
+    // --- MOD AGGIUNTA: invio posizioni verso il main solo durante Play, ~30 FPS ---
+    this.vizCounter += frames;
+    if (this.vizCounter >= this.vizIntervalFrames) {
+      this.vizCounter = 0;
+      if (this.playing) {
+        this.port.postMessage({
+          type: "positions",
+          positions: [this.positions[0], this.positions[1]]
+        });
+      }
+    }
+
     if (!this.playing || !this.buffer || this.bufferLength === 0) {
       return true;
     }
@@ -238,6 +255,10 @@ class GranularProcessor extends AudioWorkletProcessor {
     this._updateLFOPhases(secondsBlock);
     const coeffA = this._coeffLP1Pole(this.paramsA, this.lfoPhaseA);
     const coeffB = this._coeffLP1Pole(this.paramsB, this.lfoPhaseB);
+
+    // NEW: gain per-cursore (clippato >= 0)
+    const gainA = Math.max(0, this.paramsA.gain ?? 1);
+    const gainB = Math.max(0, this.paramsB.gain ?? 1);
 
     // Scheduler A
     if (this.framesToNextGrainA <= 0) {
@@ -249,8 +270,6 @@ class GranularProcessor extends AudioWorkletProcessor {
     }
 
     // Spawn multipli possibili nello stesso blocco
-    // Se il countdown scade entro il blocco, spawn all'inizio del blocco e
-    // aggiungi intervalli finché rientri oltre il blocco.
     if (this.framesToNextGrainA <= frames) {
       this._spawnGrain(0, coeffA);
       const intervalA = this._framesInterval(this.paramsA.density);
@@ -297,9 +316,10 @@ class GranularProcessor extends AudioWorkletProcessor {
         const env = this._hannAt(gr.envPos + i, gr.envLen);
         const s   = this._interpLinear(gr.phase) * env;
 
-        // pan dry
-        const Ldry = s * gr.panL;
-        const Rdry = s * gr.panR;
+        // pan dry + gain per-cursore
+        const gcur = (gr.cursor === 0) ? gainA : gainB;
+        const Ldry = s * gr.panL * gcur;
+        const Rdry = s * gr.panR * gcur;
 
         // LPF per-grano
         yL = b * Ldry + a * yL;

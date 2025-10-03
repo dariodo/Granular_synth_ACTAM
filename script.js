@@ -39,6 +39,8 @@ const defaultCursorParams = () => ({
   lfoFreq: parseFloat(($("lfoFreqRange") || {}).value) || 1,
   lfoDepth: parseFloat(($("lfoDepthRange") || {}).value) || 0.2,
   scanSpeed: parseFloat(($("scanSpeedRange") || {}).value) || 0.01,
+  // NEW: volume per-cursore
+  gain: parseFloat(($("volumeRange") || {}).value) || 0.5,
 });
 
 let cursorParams = [ defaultCursorParams(), defaultCursorParams() ];
@@ -51,9 +53,9 @@ async function ensureAudio() {
 
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-  // Master gain (volume globale)
+  // Master gain (volume globale) — fissato a 1.0, il volume ora è per-cursore
   masterGain = audioCtx.createGain();
-  masterGain.gain.value = parseFloat(($("volumeRange") || {}).value) || 0.5;
+  masterGain.gain.value = 1.0; // IMPORTANT: non legare più al volumeRange
   masterGain.connect(audioCtx.destination);
 
   // Carica il modulo del Worklet
@@ -71,10 +73,21 @@ async function ensureAudio() {
 
   workletNode.connect(masterGain);
 
-  // Eventuali log dal processor (opzionale)
+  // === MODIFICATO: listener messaggi dal Worklet (aggiornamento posizioni in tempo reale) ===
   workletNode.port.onmessage = (e) => {
-    if (e.data?.type === "log") {
-      // console.log("[worklet]", e.data.msg);
+    const d = e.data || {};
+    if (d.type === "positions" && Array.isArray(d.positions) && d.positions.length === 2) {
+      // Aggiorna 'positions' (arriva dal Worklet) e lo slider del cursore attivo
+      positions[0] = clamp01(d.positions[0]);
+      positions[1] = clamp01(d.positions[1]);
+
+      const posSlider = $("positionRange");
+      if (posSlider) posSlider.value = positions[activeCursor];
+
+      // Ridisegna waveform + marker (visual update ~30 FPS quando Play è attivo)
+      if (audioBuffer) drawWaveform(audioBuffer);
+    } else if (d.type === "log") {
+      // console.log("[worklet]", d.msg);
     }
   };
 
@@ -164,7 +177,9 @@ $("freezeBtn").addEventListener("click", () => {
 // ============================
 const perCursorSliderIds = [
   "attackRange","releaseRange","densityRange","spreadRange","panRange",
-  "pitchRange","filterCutoffRange","lfoFreqRange","lfoDepthRange","scanSpeedRange"
+  "pitchRange","filterCutoffRange","lfoFreqRange","lfoDepthRange","scanSpeedRange",
+  // NEW: volume per-cursore
+  "volumeRange"
 ];
 
 // Ogni slider aggiorna SOLO i params del cursore attivo e li invia al worklet
@@ -182,16 +197,15 @@ perCursorSliderIds.forEach((id) => {
       lfoFreq: parseFloat($("lfoFreqRange").value),
       lfoDepth: parseFloat($("lfoDepthRange").value),
       scanSpeed: parseFloat($("scanSpeedRange").value),
+      // NEW
+      gain: parseFloat($("volumeRange").value),
     };
     sendParamsForActiveCursor();
   });
 });
 
-// Volume master (main thread)
-$("volumeRange").addEventListener("input", (e) => {
-  const v = parseFloat(e.target.value);
-  if (masterGain) masterGain.gain.value = v;
-});
+// (RIMOSSO) Volume master globale — ora è per-cursore via perCursorSliderIds
+// $("volumeRange").addEventListener("input", (e) => { ... });
 
 // ============================
 // Gestione cursori A/B
@@ -237,6 +251,8 @@ $("positionTarget").addEventListener("change", (e) => {
   $("lfoFreqRange").value = p.lfoFreq;
   $("lfoDepthRange").value = p.lfoDepth;
   $("scanSpeedRange").value = p.scanSpeed;
+  // NEW: ricarica anche il volume della voce selezionata
+  $("volumeRange").value = p.gain;
 
   $("positionRange").value = positions[activeCursor];
 });
@@ -290,7 +306,7 @@ function drawWaveform(buffer) {
   ctx.moveTo(0, amp);
   for (let i = 0; i < canvas.width; i++) {
     const start = i * step;
-    const end = Math.min((i + 1) * step, data.length);
+       const end = Math.min((i + 1) * step, data.length);
     let min = 1, max = -1;
     for (let j = start; j < end; j++) {
       const v = data[j];
