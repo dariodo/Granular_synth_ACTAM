@@ -1,261 +1,239 @@
-let audioContext = new (window.AudioContext || window.webkitAudioContext)();
+// === Granular Synth - Completo con Master Volume, Density dinamico, Spread, LFO e Marker interattivo ===
+
+let audioCtx;
 let audioBuffer;
-let pointerX = 0;
+let masterGain;
 let isPlaying = false;
-let freezeMode = false;
+let grainInterval;
 
-// DOM Elements
-const canvas = document.getElementById("waveformCanvas");
-const canvasContext = canvas.getContext("2d");
+let lfoOscillator;
+let lfoGain;
 
-const audioFileInput = document.getElementById("audioFileInput");
-const playButton = document.getElementById("playButton");
-const stopButton = document.getElementById("stopButton");
-const freezeCheckbox = document.getElementById("freezeCheckbox");
+let params = {
+  position: 0,
+  attack: 0.1,
+  release: 0.1,
+  density: 10,
+  spread: 0.1,
+  pan: 0,
+  pitch: 1,
+  volume: 0.5,
+  filterCutoff: 5000,
+  lfoFreq: 1,
+  lfoDepth: 0.2,
+  scanSpeed: 0,
+  freeze: false
+};
 
-const positionRange = document.getElementById("positionRange");
-const attackRange = document.getElementById("attackRange");
-const releaseRange = document.getElementById("releaseRange");
-const densityRange = document.getElementById("densityRange");
-const spreadRange = document.getElementById("spreadRange");
-const panRange = document.getElementById("panRange");
-const pitchRange = document.getElementById("pitchRange");
-const volumeRange = document.getElementById("volumeRange");
-const filterCutoffRange = document.getElementById("filterCutoffRange");
-const lfoFreqRange = document.getElementById("lfoFreqRange");
-const lfoDepthRange = document.getElementById("lfoDepthRange");
-const scanSpeedRange = document.getElementById("scanSpeedRange");
+// === Caricamento file audio ===
+document.getElementById("audioFileInput").addEventListener("change", async e => {
+  const file = e.target.files[0];
+  if (!file) return;
 
-// Master Gain
-const masterGainNode = audioContext.createGain();
-masterGainNode.gain.value = 0.5;
-masterGainNode.connect(audioContext.destination);
+  if (!audioCtx) {
+    audioCtx = new AudioContext();
 
-// Filter
-const filterNode = audioContext.createBiquadFilter();
-filterNode.type = 'lowpass';
-filterNode.frequency.value = parseFloat(filterCutoffRange.value);
-filterNode.connect(masterGainNode);
+    // Master gain globale
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = params.volume;
+    masterGain.connect(audioCtx.destination);
 
-// Bus per i grani
-const grainGainBus = audioContext.createGain();
-grainGainBus.connect(filterNode);
+    // LFO globale
+    lfoOscillator = audioCtx.createOscillator();
+    lfoGain = audioCtx.createGain();
 
-// LFO e Pitch Modulation
-const lfoOsc = audioContext.createOscillator();
-const lfoGain = audioContext.createGain(); // profonidità LFO
-lfoOsc.type = 'sine';
-lfoOsc.frequency.value = parseFloat(lfoFreqRange.value);
-lfoGain.gain.value = parseFloat(lfoDepthRange.value);
-lfoOsc.start();
+    lfoOscillator.type = "sine";
+    lfoOscillator.frequency.value = params.lfoFreq;
+    lfoGain.gain.value = params.lfoDepth * params.filterCutoff;
 
-// Offset pitch base con ConstantSourceNode
-const pitchOffsetNode = audioContext.createConstantSource();
-pitchOffsetNode.offset.value = parseFloat(pitchRange.value);
-pitchOffsetNode.start();
-
-// Non colleghiamo subito a nulla, collegheremo questi nodi all'audioParam di ogni grain al momento della creazione.
-
-// Grain envelope
-const grainDuration = 0.2;
-let gaussWindowCurve = null;
-
-function createGaussCurve(size) {
-  // finestra gaussiana
-  // w(n) = exp(-0.5 * ((n - (N-1)/2) / (sigma*(N-1)/2))^2)
-  // scegliamo sigma = 0.4 per una finestra un po' ampia
-  const curve = new Float32Array(size);
-  const N = size;
-  const midpoint = (N - 1) / 2;
-  const sigma = 0.4; 
-  for (let i = 0; i < N; i++) {
-    const x = (i - midpoint) / (sigma * midpoint);
-    curve[i] = Math.exp(-0.5 * x * x);
+    lfoOscillator.connect(lfoGain);
+    lfoOscillator.start();
   }
-  return curve;
-}
 
-function updateGaussCurve() {
-  const samples = Math.floor(audioContext.sampleRate * grainDuration);
-  gaussWindowCurve = createGaussCurve(samples);
-}
+  const arrayBuffer = await file.arrayBuffer();
+  audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
 
-audioFileInput.addEventListener("change", (event) => {
-  const file = event.target.files[0];
-  if (file) {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      audioContext.decodeAudioData(e.target.result).then((buffer) => {
-        audioBuffer = buffer;
-        positionRange.max = buffer.duration.toFixed(2);
-        drawWaveform();
-        updateGaussCurve();
-        isPlaying = false; // reset stato, se necessario
-      });
-    };
-    reader.readAsArrayBuffer(file);
-  }
+  drawWaveform(audioBuffer);
 });
 
-function drawWaveform() {
-  if (!audioBuffer) return;
-  const data = audioBuffer.getChannelData(0);
+// === Disegno waveform + marker ===
+function drawWaveform(buffer) {
+  const canvas = document.getElementById("waveformCanvas");
+  const ctx = canvas.getContext("2d");
+  const data = buffer.getChannelData(0);
   const step = Math.ceil(data.length / canvas.width);
   const amp = canvas.height / 2;
 
-  canvasContext.clearRect(0, 0, canvas.width, canvas.height);
-  canvasContext.fillStyle = "lightgray";
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.beginPath();
+  ctx.moveTo(0, amp);
 
   for (let i = 0; i < canvas.width; i++) {
-    const segment = data.slice(i * step, (i + 1) * step);
-    const min = Math.min(...segment);
-    const max = Math.max(...segment);
-    canvasContext.fillRect(i, amp - max * amp, 1, Math.max(1, (max - min) * amp));
+    const slice = data.slice(i * step, (i + 1) * step);
+    const min = Math.min(...slice);
+    const max = Math.max(...slice);
+    ctx.lineTo(i, (1 + min) * amp);
+    ctx.lineTo(i, (1 + max) * amp);
   }
 
-  drawPointer();
-}
+  ctx.strokeStyle = "lime";
+  ctx.stroke();
 
-function drawPointer() {
-  canvasContext.fillStyle = "red";
-  canvasContext.fillRect(pointerX - 2, 0, 4, canvas.height);
-}
-
-positionRange.addEventListener("input", () => {
-  if (!audioBuffer) return;
-  const position = parseFloat(positionRange.value);
-  pointerX = (position / audioBuffer.duration) * canvas.width;
-  drawWaveform();
-});
-
-volumeRange.addEventListener("input", () => {
-  masterGainNode.gain.setValueAtTime(parseFloat(volumeRange.value), audioContext.currentTime);
-});
-
-filterCutoffRange.addEventListener("input", () => {
-  filterNode.frequency.setValueAtTime(parseFloat(filterCutoffRange.value), audioContext.currentTime);
-});
-
-lfoFreqRange.addEventListener("input", () => {
-  lfoOsc.frequency.setValueAtTime(parseFloat(lfoFreqRange.value), audioContext.currentTime);
-});
-
-lfoDepthRange.addEventListener("input", () => {
-  lfoGain.gain.setValueAtTime(parseFloat(lfoDepthRange.value), audioContext.currentTime);
-});
-
-pitchRange.addEventListener("input", () => {
-  pitchOffsetNode.offset.setValueAtTime(parseFloat(pitchRange.value), audioContext.currentTime);
-});
-
-freezeCheckbox.addEventListener("change", () => {
-  freezeMode = freezeCheckbox.checked;
-});
-
-let workletNode;
-async function initWorklet() {
-  await audioContext.audioWorklet.addModule('grain-scheduler-worklet.js');
-  workletNode = new AudioWorkletNode(audioContext, 'grain-scheduler-processor');
-  workletNode.port.onmessage = (e) => {
-    if (e.data.type === 'triggerGrain' && isPlaying) {
-      createGrain();
-    }
-  };
-  workletNode.connect(audioContext.destination); 
-}
-
-initWorklet();
-
-playButton.addEventListener("click", () => {
-  if (!audioBuffer || isPlaying) return;
-  isPlaying = true;
-  updateSchedulerInterval();
-});
-
-stopButton.addEventListener("click", () => {
-  isPlaying = false;
-});
-
-densityRange.addEventListener("input", updateSchedulerInterval);
-
-function updateSchedulerInterval() {
-  const density = parseFloat(densityRange.value);
-  const interval = 1 / density;
-  if (workletNode) {
-    workletNode.port.postMessage({ type: 'updateInterval', interval: interval });
+  // === Marker posizione attuale ===
+  if (params.position !== undefined) {
+    const markerX = params.position * canvas.width;
+    ctx.beginPath();
+    ctx.moveTo(markerX, 0);
+    ctx.lineTo(markerX, canvas.height);
+    ctx.strokeStyle = "red";
+    ctx.lineWidth = 2;
+    ctx.stroke();
   }
 }
 
-// Creazione del grano
+// === Creazione grano ===
 function createGrain() {
-  const now = audioContext.currentTime;
-  let position = (pointerX / canvas.width) * audioBuffer.duration;
+  if (!audioBuffer || !audioCtx) return;
 
-  if (!freezeMode) {
-    const scanSpeed = parseFloat(scanSpeedRange.value);
-    position += scanSpeed;
-    if (position < 0) position = 0;
-    if (position > audioBuffer.duration) position = audioBuffer.duration;
-    pointerX = (position / audioBuffer.duration) * canvas.width;
-    drawWaveform();
-  }
-
-  const spreadValue = parseFloat(spreadRange.value);
-  let offset = position;
-  if (!freezeMode) {
-    offset += (Math.random() * spreadValue - spreadValue / 2);
-    offset = Math.max(0, Math.min(offset, audioBuffer.duration - grainDuration));
-  }
-
-  const source = audioContext.createBufferSource();
+  const source = audioCtx.createBufferSource();
   source.buffer = audioBuffer;
 
-  // Applichiamo finestra gaussiana
-  const gainNode = audioContext.createGain();
+  // Pitch
+  source.playbackRate.value = params.pitch;
+
+  // Gain envelope (attack/release)
+  const gainNode = audioCtx.createGain();
+  const now = audioCtx.currentTime;
   gainNode.gain.setValueAtTime(0, now);
-  if (gaussWindowCurve) {
-    gainNode.gain.setValueCurveAtTime(gaussWindowCurve, now, grainDuration);
-  } else {
-    // fallback lineare
-    const attack = parseFloat(attackRange.value);
-    const release = parseFloat(releaseRange.value);
-    gainNode.gain.linearRampToValueAtTime(1, now + attack);
-    gainNode.gain.linearRampToValueAtTime(0, now + attack + release);
+  gainNode.gain.linearRampToValueAtTime(1, now + params.attack);
+  gainNode.gain.linearRampToValueAtTime(0, now + params.attack + params.release);
+
+  // Pan
+  const panNode = audioCtx.createStereoPanner();
+  panNode.pan.value = params.pan;
+
+  // Filter
+  const filterNode = audioCtx.createBiquadFilter();
+  filterNode.type = "lowpass";
+  filterNode.frequency.value = params.filterCutoff;
+
+  // Collego LFO al cutoff del filtro
+  if (lfoGain) {
+    lfoGain.connect(filterNode.frequency);
   }
 
-  const panner = audioContext.createStereoPanner();
-  const basePan = parseFloat(panRange.value);
-  const randomPanVariation = (Math.random() - 0.5) * 0.2;
-  panner.pan.setValueAtTime(basePan + randomPanVariation, now);
+  // Catena audio
+  source.connect(filterNode);
+  filterNode.connect(panNode);
+  panNode.connect(gainNode);
+  gainNode.connect(masterGain);
 
-  // Pitch Modulation più sofisticata:
-  // playbackRate è un AudioParam, possiamo sommare segnali ad esso.
-  // Base pitch + LFO
-  // Per avere basePitch + LFO * depth, usiamo:
-  // pitchOffsetNode (offset = basePitch) e lfoOsc*lfoGain (oscilla tra -depth e +depth)
-  // Colleghiamo entrambi a playbackRate: l'AudioParam sommerà i valori.
-  // Quindi: pitchOffsetNode -> playbackRate
-  //         lfoOsc -> lfoGain -> playbackRate
-  // Nota: lfoOsc e lfoGain sono già in funzione, dobbiamo creare una catena temporanea per questo grain.
+  // Posizione nel buffer con spread
+  let spreadOffset = (Math.random() * 2 - 1) * params.spread;
+  let positionInBuffer = params.position * audioBuffer.duration + spreadOffset;
 
-  // Creiamo un canale dedicato per la modulazione del pitch per questo grain:
-  // In realtà possiamo connettere lfoGain e pitchOffsetNode direttamente a playbackRate.
-  pitchOffsetNode.connect(source.playbackRate);
-  lfoOsc.connect(lfoGain);
-  lfoGain.connect(source.playbackRate);
+  if (positionInBuffer < 0) positionInBuffer = 0;
+  if (positionInBuffer > audioBuffer.duration - (params.attack + params.release)) {
+    positionInBuffer = audioBuffer.duration - (params.attack + params.release);
+  }
 
-  source.connect(gainNode);
-  gainNode.connect(panner);
-  panner.connect(grainGainBus);
-
-  source.start(now, offset, grainDuration);
-  source.stop(now + grainDuration);
-
-  // Dopo la fine del grano, disconnettiamo le connessioni LFO per evitare accumuli inutili.
-  // setTimeout è accettabile perché non critico al timing audio perfetto.
-  setTimeout(() => {
-    // Disconnessione dal param
-    pitchOffsetNode.disconnect(source.playbackRate);
-    lfoGain.disconnect(source.playbackRate);
-  }, (grainDuration * 1000) + 50); // attesa un po' oltre la durata del grano
+  source.start(now, positionInBuffer, params.attack + params.release);
 }
+
+// === Scheduler grani ===
+function startGranular() {
+  if (!audioBuffer) return;
+  isPlaying = true;
+
+  const interval = 1000 / params.density;
+  grainInterval = setInterval(() => {
+    createGrain();
+
+    if (!params.freeze) {
+      params.position += params.scanSpeed;
+      if (params.position > 1) params.position = 0;
+      if (params.position < 0) params.position = 1;
+    }
+
+    // Aggiorna marker in tempo reale
+    drawWaveform(audioBuffer);
+  }, interval);
+}
+
+function stopGranular() {
+  isPlaying = false;
+  clearInterval(grainInterval);
+}
+
+// === Click sul canvas → aggiorna posizione ===
+document.getElementById("waveformCanvas").addEventListener("click", e => {
+  const canvas = document.getElementById("waveformCanvas");
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const percent = x / canvas.width;
+
+  params.position = percent;
+  document.getElementById("positionRange").value = percent;
+  drawWaveform(audioBuffer);
+});
+
+// === Controlli UI ===
+document.getElementById("playButton").addEventListener("click", () => {
+  if (!isPlaying) startGranular();
+});
+document.getElementById("stopButton").addEventListener("click", stopGranular);
+document.getElementById("freezeCheckbox").addEventListener("change", e => {
+  params.freeze = e.target.checked;
+});
+
+// Sliders → params
+[
+  "attackRange", "releaseRange", "spreadRange", "panRange",
+  "pitchRange", "filterCutoffRange", "scanSpeedRange"
+].forEach(id => {
+  document.getElementById(id).addEventListener("input", e => {
+    params[id.replace("Range", "")] = parseFloat(e.target.value);
+  });
+});
+
+// Position slider → aggiorna marker
+document.getElementById("positionRange").addEventListener("input", e => {
+  params.position = parseFloat(e.target.value);
+  drawWaveform(audioBuffer);
+});
+
+// Volume
+document.getElementById("volumeRange").addEventListener("input", e => {
+  params.volume = parseFloat(e.target.value);
+  if (masterGain) masterGain.gain.value = params.volume;
+});
+
+// Density dinamico
+document.getElementById("densityRange").addEventListener("input", e => {
+  params.density = parseFloat(e.target.value);
+
+  if (isPlaying) {
+    clearInterval(grainInterval);
+    const interval = 1000 / params.density;
+    grainInterval = setInterval(() => {
+      createGrain();
+      if (!params.freeze) {
+        params.position += params.scanSpeed;
+        if (params.position > 1) params.position = 0;
+        if (params.position < 0) params.position = 1;
+      }
+      drawWaveform(audioBuffer);
+    }, interval);
+  }
+});
+
+// === LFO controls ===
+document.getElementById("lfoFreqRange").addEventListener("input", e => {
+  params.lfoFreq = parseFloat(e.target.value);
+  if (lfoOscillator) lfoOscillator.frequency.value = params.lfoFreq;
+});
+
+document.getElementById("lfoDepthRange").addEventListener("input", e => {
+  params.lfoDepth = parseFloat(e.target.value);
+  if (lfoGain) lfoGain.gain.value = params.lfoDepth * params.filterCutoff; 
+});

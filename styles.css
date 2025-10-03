@@ -1,126 +1,37 @@
+/* Stile generale */
 body {
-  font-family: Arial, sans-serif;
-  background-color: #f4f4f9;
-  color: #333;
+  background-color: #f8f9fa;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
 }
 
-canvas {
-  cursor: pointer;
+/* Titolo */
+h1 {
+  font-weight: 700;
+  margin-bottom: 20px;
 }
 
-/* Puoi aggiungere ulteriori stili qui */
+/* Canvas waveform */
 #waveformCanvas {
-  border: 1px solid #000;
-  background-color: #f8f9fa;
+  background-color: #fff;
+  border-radius: 8px;
 }
 
-#controls {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 10px;
+/* Pulsanti Play / Stop */
+#playButton {
+  font-weight: 600;
 }
 
-#controls button {
-  padding: 5px 10px;
-  border: 1px solid #000;
-  background-color: #f8f9fa;
+#stopButton {
+  font-weight: 600;
+}
+
+/* Slider */
+input[type=range] {
   cursor: pointer;
 }
 
-#controls button:disabled {
-  background-color: #ccc;
-}
-
-#controls button:hover {
-  background-color: #e9ecef;
-}
-
-#controls button:active {
-  background-color: #dee2e6;
-}
-
-#controls button:focus {
-  outline: none;
-}
-
-#controls button:first-child {
-  margin-right: 10px;
-}
-
-#controls button:last-child {
-  margin-left: 10px;
-}
-
-#controls input[type="range"] {
-  width: 100%;
-}
-
-#controls label {
-  margin-right: 10px;
-}
-
-#controls .form-group {
-  margin-bottom: 10px;
-}
-
-#controls .form-group:last-child {
-  margin-bottom: 0;
-}
-
-#controls .form-group .form-label {
-  display: block;
-  margin-bottom: 5px;
-}
-
-#controls .form-group .form-control {
-  width: 100%;
-  padding: 5px;
-  border: 1px solid #000;
-}
-
-#controls .form-group .form-control:focus {
-  outline: none;
-}
-
-#controls .form-group .form-control:disabled {
-  background-color: #ccc;
-}
-
-#controls .form-group .form-control:disabled:focus {
-  outline: none;
-}
-
-#controls .form-group .form-control:disabled::placeholder {
-  color: #999;
-}
-
-#controls .form-group .form-control::placeholder {
-  color: #999;
-}
-
-#controls .form-group .form-control[type="number"] {
-  width: 50px;
-}
-
-#controls .form-group .form-control[type="number"]::-webkit-inner-spin-button,
-
-#controls .form-group .form-control[type="number"]::-webkit-outer-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-
-#controls .form-group .form-control[type="number"]::-webkit-inner-spin-button {
-  display: none;
-}
-
-#controls .form-group .form-control[type="number"]::-webkit-outer-spin-button {
-  display: none;
-}
-
-
-
-
+/* Etichette */
 .form-label {
-  font-weight: bold;
+  font-size: 0.9rem;
+  font-weight: 500;
 }
