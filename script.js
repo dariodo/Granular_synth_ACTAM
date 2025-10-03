@@ -1,239 +1,297 @@
-// === Granular Synth - Completo con Master Volume, Density dinamico, Spread, LFO e Marker interattivo ===
+// ============================
+// script.js (MAIN THREAD)
+// ============================
+// Gestisce: AudioContext, caricamento file, UI, waveform con cursori A/B,
+// invio buffer e parametri al processor AudioWorklet "granular-processor.js".
+// Mantiene tutti i controlli/original features (LFO, filtro, pan, pitch, density, spread, volume, scan, freeze).
 
 let audioCtx;
-let audioBuffer;
 let masterGain;
+let workletNode;        // AudioWorkletNode
+let audioBuffer = null; // Per disegno waveform
+let monoData = null;    // Float32Array mono da inviare al worklet
 let isPlaying = false;
-let grainInterval;
 
-let lfoOscillator;
-let lfoGain;
+// Cursori A/B in [0..1]
+let positions = [0.15, 0.65];
+let activeCursor = 0; // 0 = A, 1 = B
 
-let params = {
-  position: 0,
-  attack: 0.1,
-  release: 0.1,
-  density: 10,
-  spread: 0.1,
-  pan: 0,
-  pitch: 1,
-  volume: 0.5,
-  filterCutoff: 5000,
-  lfoFreq: 1,
-  lfoDepth: 0.2,
-  scanSpeed: 0,
-  freeze: false
-};
+const $ = (id) => document.getElementById(id);
 
-// === Caricamento file audio ===
-document.getElementById("audioFileInput").addEventListener("change", async e => {
+// -----------------------------
+// Inizializzazione AudioContext
+// -----------------------------
+async function ensureAudio() {
+  if (audioCtx) return;
+
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+  // Master Gain (Volume globale)
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = parseFloat($("volumeRange").value || "0.5");
+  masterGain.connect(audioCtx.destination);
+
+  // Carica il modulo Worklet
+  await audioCtx.audioWorklet.addModule("worklet/granular-processor.js");
+
+  // Crea il WorkletNode
+  workletNode = new AudioWorkletNode(audioCtx, "granular-processor", {
+    numberOfInputs: 0,
+    numberOfOutputs: 1,
+    outputChannelCount: [2],
+    processorOptions: {
+      sampleRate: audioCtx.sampleRate
+    }
+  });
+  workletNode.connect(masterGain);
+
+  // Opzionale: log dal processor
+  workletNode.port.onmessage = (e) => {
+    if (e.data?.type === "log") {
+      // console.log("[worklet]", e.data.msg);
+    }
+  };
+
+  // Parametri iniziali → worklet
+  syncAllParamsToWorklet();
+  sendPositions();
+}
+
+// -----------------------------
+// Caricamento file audio
+// -----------------------------
+$("audioFileInput").addEventListener("change", async (e) => {
   const file = e.target.files[0];
   if (!file) return;
-
-  if (!audioCtx) {
-    audioCtx = new AudioContext();
-
-    // Master gain globale
-    masterGain = audioCtx.createGain();
-    masterGain.gain.value = params.volume;
-    masterGain.connect(audioCtx.destination);
-
-    // LFO globale
-    lfoOscillator = audioCtx.createOscillator();
-    lfoGain = audioCtx.createGain();
-
-    lfoOscillator.type = "sine";
-    lfoOscillator.frequency.value = params.lfoFreq;
-    lfoGain.gain.value = params.lfoDepth * params.filterCutoff;
-
-    lfoOscillator.connect(lfoGain);
-    lfoOscillator.start();
-  }
+  await ensureAudio();
 
   const arrayBuffer = await file.arrayBuffer();
   audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
 
+  // Downmix a mono per la granular synthesis nel processor
+  monoData = downmixToMono(audioBuffer);
+
+  // Invia il buffer mono al worklet (transfer ownership per efficienza)
+  workletNode.port.postMessage(
+    {
+      type: "setBuffer",
+      sampleRate: audioBuffer.sampleRate,
+      mono: monoData.buffer
+    },
+    [monoData.buffer]
+  );
+
+  // Dopo il transfer, monoData.buffer è "detached"; ricreiamo monoData per uso locale se servisse
+  monoData = downmixToMono(audioBuffer);
+
+  // Disegna waveform iniziale
   drawWaveform(audioBuffer);
+
+  // Allinea slider Position al cursore attivo
+  $("positionRange").value = positions[activeCursor];
+
+  // Reinvia posizioni (già fatto in ensureAudio, ma ribadiamo)
+  sendPositions();
 });
 
-// === Disegno waveform + marker ===
+// Downmix helper
+function downmixToMono(buf) {
+  const n = buf.length;
+  const chs = buf.numberOfChannels;
+  const out = new Float32Array(n);
+  for (let ch = 0; ch < chs; ch++) {
+    const data = buf.getChannelData(ch);
+    for (let i = 0; i < n; i++) {
+      out[i] += data[i] / chs;
+    }
+  }
+  return out;
+}
+
+// -----------------------------
+// Play / Stop / Freeze
+// -----------------------------
+$("playButton").addEventListener("click", async () => {
+  await ensureAudio();
+  if (!audioBuffer) return;
+  if (audioCtx.state === "suspended") await audioCtx.resume();
+  isPlaying = true;
+  workletNode.port.postMessage({ type: "setPlaying", value: true });
+});
+
+$("stopButton").addEventListener("click", () => {
+  isPlaying = false;
+  workletNode.port.postMessage({ type: "setPlaying", value: false });
+});
+
+$("freezeCheckbox").addEventListener("change", (e) => {
+  workletNode?.port.postMessage({ type: "setFreeze", value: e.target.checked });
+});
+
+// -----------------------------
+// Sincronizzazione Parametri UI → Worklet
+// -----------------------------
+function syncAllParamsToWorklet() {
+  if (!workletNode) return;
+
+  const params = {
+    attack: parseFloat($("attackRange").value),
+    release: parseFloat($("releaseRange").value),
+    density: parseFloat($("densityRange").value),
+    spread: parseFloat($("spreadRange").value),
+    pan: parseFloat($("panRange").value),
+    pitch: parseFloat($("pitchRange").value),
+    cutoff: parseFloat($("filterCutoffRange").value),
+    lfoFreq: parseFloat($("lfoFreqRange").value),
+    lfoDepth: parseFloat($("lfoDepthRange").value),
+    scanSpeed: parseFloat($("scanSpeedRange").value)
+  };
+
+  workletNode.port.postMessage({ type: "setParams", params });
+}
+
+// Aggiorna parametri a ogni input
+[
+  "attackRange",
+  "releaseRange",
+  "densityRange",
+  "spreadRange",
+  "panRange",
+  "pitchRange",
+  "filterCutoffRange",
+  "lfoFreqRange",
+  "lfoDepthRange",
+  "scanSpeedRange"
+].forEach((id) => {
+  $(id).addEventListener("input", () => {
+    syncAllParamsToWorklet();
+  });
+});
+
+// Volume master (sul main thread)
+$("volumeRange").addEventListener("input", (e) => {
+  const v = parseFloat(e.target.value);
+  if (masterGain) masterGain.gain.value = v;
+});
+
+// -----------------------------
+// Gestione posizioni cursori A/B
+// -----------------------------
+function sendPositions() {
+  if (!workletNode) return;
+  workletNode.port.postMessage({ type: "setPositions", positions });
+}
+
+// Tendina A/B → cambia cursore attivo
+$("positionTarget").addEventListener("change", (e) => {
+  activeCursor = parseInt(e.target.value, 10) || 0;
+  $("positionRange").value = positions[activeCursor];
+});
+
+// Slider Position → muove solo il cursore attivo
+$("positionRange").addEventListener("input", (e) => {
+  positions[activeCursor] = clamp01(parseFloat(e.target.value));
+  drawWaveform(audioBuffer);
+  sendPositions();
+});
+
+// Click sul canvas → sposta il cursore più vicino
+$("waveformCanvas").addEventListener("click", (e) => {
+  if (!audioBuffer) return;
+  const canvas = $("waveformCanvas");
+  const rect = canvas.getBoundingClientRect();
+  const xNorm = (e.clientX - rect.left) / canvas.width;
+
+  const dA = Math.abs(xNorm - positions[0]);
+  const dB = Math.abs(xNorm - positions[1]);
+  const chosen = dA <= dB ? 0 : 1;
+
+  positions[chosen] = clamp01(xNorm);
+  activeCursor = chosen;
+
+  $("positionTarget").value = String(activeCursor);
+  $("positionRange").value = positions[activeCursor];
+
+  drawWaveform(audioBuffer);
+  sendPositions();
+});
+
+// -----------------------------
+// Disegno waveform + markers A/B
+// -----------------------------
 function drawWaveform(buffer) {
-  const canvas = document.getElementById("waveformCanvas");
+  if (!buffer) return;
+  const canvas = $("waveformCanvas");
   const ctx = canvas.getContext("2d");
   const data = buffer.getChannelData(0);
   const step = Math.ceil(data.length / canvas.width);
   const amp = canvas.height / 2;
 
+  // Sfondo
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Waveform (min/max)
   ctx.beginPath();
   ctx.moveTo(0, amp);
-
   for (let i = 0; i < canvas.width; i++) {
-    const slice = data.slice(i * step, (i + 1) * step);
-    const min = Math.min(...slice);
-    const max = Math.max(...slice);
+    const start = i * step;
+    const end = Math.min((i + 1) * step, data.length);
+    let min = 1, max = -1;
+    for (let j = start; j < end; j++) {
+      const v = data[j];
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
     ctx.lineTo(i, (1 + min) * amp);
     ctx.lineTo(i, (1 + max) * amp);
   }
-
   ctx.strokeStyle = "lime";
+  ctx.lineWidth = 1;
   ctx.stroke();
 
-  // === Marker posizione attuale ===
-  if (params.position !== undefined) {
-    const markerX = params.position * canvas.width;
-    ctx.beginPath();
-    ctx.moveTo(markerX, 0);
-    ctx.lineTo(markerX, canvas.height);
-    ctx.strokeStyle = "red";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-  }
+  // Marker A/B
+  drawMarker(ctx, canvas, positions[0], "#e63946", "A"); // rosso
+  drawMarker(ctx, canvas, positions[1], "#1d3557", "B"); // blu
 }
 
-// === Creazione grano ===
-function createGrain() {
-  if (!audioBuffer || !audioCtx) return;
+function drawMarker(ctx, canvas, posNorm, color, label) {
+  const x = posNorm * canvas.width;
 
-  const source = audioCtx.createBufferSource();
-  source.buffer = audioBuffer;
+  // linea verticale
+  ctx.beginPath();
+  ctx.moveTo(x, 0);
+  ctx.lineTo(x, canvas.height);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.setLineDash(label === "A" ? [] : [5, 4]);
+  ctx.stroke();
+  ctx.setLineDash([]);
 
-  // Pitch
-  source.playbackRate.value = params.pitch;
-
-  // Gain envelope (attack/release)
-  const gainNode = audioCtx.createGain();
-  const now = audioCtx.currentTime;
-  gainNode.gain.setValueAtTime(0, now);
-  gainNode.gain.linearRampToValueAtTime(1, now + params.attack);
-  gainNode.gain.linearRampToValueAtTime(0, now + params.attack + params.release);
-
-  // Pan
-  const panNode = audioCtx.createStereoPanner();
-  panNode.pan.value = params.pan;
-
-  // Filter
-  const filterNode = audioCtx.createBiquadFilter();
-  filterNode.type = "lowpass";
-  filterNode.frequency.value = params.filterCutoff;
-
-  // Collego LFO al cutoff del filtro
-  if (lfoGain) {
-    lfoGain.connect(filterNode.frequency);
-  }
-
-  // Catena audio
-  source.connect(filterNode);
-  filterNode.connect(panNode);
-  panNode.connect(gainNode);
-  gainNode.connect(masterGain);
-
-  // Posizione nel buffer con spread
-  let spreadOffset = (Math.random() * 2 - 1) * params.spread;
-  let positionInBuffer = params.position * audioBuffer.duration + spreadOffset;
-
-  if (positionInBuffer < 0) positionInBuffer = 0;
-  if (positionInBuffer > audioBuffer.duration - (params.attack + params.release)) {
-    positionInBuffer = audioBuffer.duration - (params.attack + params.release);
-  }
-
-  source.start(now, positionInBuffer, params.attack + params.release);
+  // bandierina/etichetta
+  ctx.fillStyle = color;
+  ctx.fillRect(x - 10, 4, 20, 16);
+  ctx.fillStyle = "#fff";
+  ctx.font = "12px Segoe UI, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(label, x, 12);
 }
 
-// === Scheduler grani ===
-function startGranular() {
-  if (!audioBuffer) return;
-  isPlaying = true;
-
-  const interval = 1000 / params.density;
-  grainInterval = setInterval(() => {
-    createGrain();
-
-    if (!params.freeze) {
-      params.position += params.scanSpeed;
-      if (params.position > 1) params.position = 0;
-      if (params.position < 0) params.position = 1;
-    }
-
-    // Aggiorna marker in tempo reale
-    drawWaveform(audioBuffer);
-  }, interval);
+// -----------------------------
+// Utils
+// -----------------------------
+function clamp01(x) {
+  return Math.max(0, Math.min(1, x));
 }
 
-function stopGranular() {
-  isPlaying = false;
-  clearInterval(grainInterval);
-}
-
-// === Click sul canvas → aggiorna posizione ===
-document.getElementById("waveformCanvas").addEventListener("click", e => {
-  const canvas = document.getElementById("waveformCanvas");
-  const rect = canvas.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  const percent = x / canvas.width;
-
-  params.position = percent;
-  document.getElementById("positionRange").value = percent;
-  drawWaveform(audioBuffer);
-});
-
-// === Controlli UI ===
-document.getElementById("playButton").addEventListener("click", () => {
-  if (!isPlaying) startGranular();
-});
-document.getElementById("stopButton").addEventListener("click", stopGranular);
-document.getElementById("freezeCheckbox").addEventListener("change", e => {
-  params.freeze = e.target.checked;
-});
-
-// Sliders → params
-[
-  "attackRange", "releaseRange", "spreadRange", "panRange",
-  "pitchRange", "filterCutoffRange", "scanSpeedRange"
-].forEach(id => {
-  document.getElementById(id).addEventListener("input", e => {
-    params[id.replace("Range", "")] = parseFloat(e.target.value);
-  });
-});
-
-// Position slider → aggiorna marker
-document.getElementById("positionRange").addEventListener("input", e => {
-  params.position = parseFloat(e.target.value);
-  drawWaveform(audioBuffer);
-});
-
-// Volume
-document.getElementById("volumeRange").addEventListener("input", e => {
-  params.volume = parseFloat(e.target.value);
-  if (masterGain) masterGain.gain.value = params.volume;
-});
-
-// Density dinamico
-document.getElementById("densityRange").addEventListener("input", e => {
-  params.density = parseFloat(e.target.value);
-
-  if (isPlaying) {
-    clearInterval(grainInterval);
-    const interval = 1000 / params.density;
-    grainInterval = setInterval(() => {
-      createGrain();
-      if (!params.freeze) {
-        params.position += params.scanSpeed;
-        if (params.position > 1) params.position = 0;
-        if (params.position < 0) params.position = 1;
-      }
-      drawWaveform(audioBuffer);
-    }, interval);
+// -----------------------------
+// Avvio lazy: prepara AudioContext al primo gesto
+// -----------------------------
+window.addEventListener("click", async () => {
+  // Sblocca AudioContext su iOS/Safari se necessario
+  if (audioCtx && audioCtx.state === "suspended") {
+    try { await audioCtx.resume(); } catch {}
   }
-});
-
-// === LFO controls ===
-document.getElementById("lfoFreqRange").addEventListener("input", e => {
-  params.lfoFreq = parseFloat(e.target.value);
-  if (lfoOscillator) lfoOscillator.frequency.value = params.lfoFreq;
-});
-
-document.getElementById("lfoDepthRange").addEventListener("input", e => {
-  params.lfoDepth = parseFloat(e.target.value);
-  if (lfoGain) lfoGain.gain.value = params.lfoDepth * params.filterCutoff; 
-});
+}, { once: true });

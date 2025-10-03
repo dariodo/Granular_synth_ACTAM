@@ -35,12 +35,13 @@
     <!-- Controlli riga 1 -->
     <div class="row mt-4 g-3">
       <div class="col-md-2">
-        <label for="positionRange" class="form-label">Position
-        <select id="positionTarget" class="form-select form-select-sm" style="width:auto">
-      <option value="0">Cursor A</option>
-      <option value="1">Cursor B</option>
-      </select>
-      </label>
+        <label for="positionRange" class="form-label">
+          Position
+          <select id="positionTarget" class="form-select form-select-sm" style="width:auto">
+            <option value="0">Cursor A</option>
+            <option value="1">Cursor B</option>
+          </select>
+        </label>
         <input type="range" id="positionRange" class="form-range" min="0" max="1" step="0.01" value="0">
       </div>
       <div class="col-md-2">
@@ -87,7 +88,6 @@
         <label for="lfoDepthRange" class="form-label">LFO Depth</label>
         <input type="range" id="lfoDepthRange" class="form-range" min="0" max="1" step="0.01" value="0.2">
       </div>
-      
       <div class="col-md-2">
         <label for="scanSpeedRange" class="form-label">Scan Speed</label>
         <input type="range" id="scanSpeedRange" class="form-range" min="-0.1" max="0.1" step="0.001" value="0.01">
@@ -95,7 +95,7 @@
     </div>
   </div>
 
-  <!-- Qui andra' il tuo JS -->
+  <!-- JS principale (gestisce UI e carica il Worklet via script.js) -->
   <script src="script.js"></script>
 </body>
 </html>
