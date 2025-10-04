@@ -27,14 +27,30 @@
       <div class="params">
 
         <div class="col" style="min-width:140px">
-          <label for="positionRange" class="small">
-            Position
-            <select id="positionTarget" class="form-select form-select-sm" style="width:auto; display:inline-block;">
-              <option value="0">Cursor A</option>
-              <option value="1">Cursor B</option>
-            </select>
-          </label>
-          <input type="range" id="positionRange" class="param-slider" min="0" max="1" step="0.01" value="0">
+          <label class="small"></label>
+
+          <!-- Switch A/B stile analog con lucine -->
+          <div id="cursorSwitch" class="ab-switch" role="tablist" aria-label="Cursor selector">
+            <button class="ab-btn ab-a" data-cursor="0" role="tab" aria-selected="true" title="Cursor A">
+              <span class="led" aria-hidden="true"></span>
+              <span class="txt"></span>
+            </button>
+
+            <div class="ab-track" aria-hidden="true">
+              <div class="ab-nub"></div>
+            </div>
+
+            <button class="ab-btn ab-b" data-cursor="1" role="tab" aria-selected="false" title="Cursor B">
+              <span class="led" aria-hidden="true"></span>
+              <span class="txt"></span>
+            </button>
+          </div>
+
+          <!-- Hidden fallback/select conservato per compatibilità con lo script -->
+          <select id="positionTarget" class="form-select form-select-sm" style="display:none;">
+            <option value="0">Cursor A</option>
+            <option value="1">Cursor B</option>
+          </select>
         </div>
 
         <div class="col">
@@ -64,7 +80,8 @@
 
         <div class="col">
           <label for="pitchRange" class="small">Pitch</label>
-          <input type="range" id="pitchRange" class="param-slider" min="0.5" max="2" step="0.01" value="1">
+          <!-- MOD: pitch centrato in semitoni, 0 = intonato -->
+          <input type="range" id="pitchRange" class="param-slider" min="-12" max="12" step="0.1" value="0">
         </div>
 
         <div class="col">
@@ -84,9 +101,13 @@
 
         <div class="col">
           <label for="scanSpeedRange" class="small">Scan Speed</label>
-          <input type="range" id="scanSpeedRange" class="param-slider" min="-0.1" max="0.1" step="0.001" value="0.01">
+          <input type="range" id="scanSpeedRange" class="param-slider" min="-0.1" max="0.1" step="0.001" value="0">
         </div>
-        
+
+        <div class="col">
+          <label for="gainRange" class="small">Gain</label>
+          <input type="range" id="gainRange" class="param-slider" min="0" max="1" step="0.01" value="0.5">
+        </div>
 
       </div><!-- /params -->
     </div><!-- /center-pane -->
@@ -112,10 +133,12 @@
       <!-- Timer -->
       <div class="time-display" id="timeDisplay">0:00/10:00</div>
 
-      <!-- Volume verticale -->
+      <!-- Slider verticale = MASTER VOLUME GLOBALE -->
       <div class="col center">
-        <input type="range" id="volumeRange" class="vertical" min="0" max="1" step="0.01" value="0.5" aria-label="Volume">
-        <div class="vertical-label">Master Volume</div>
+        <div class="fader">
+          <input type="range" id="volumeRange" class="vertical fader-input" min="0" max="1" step="0.01" value="0.5" aria-label="Volume">
+           <div class="vertical-label">Master Volume</div>
+        </div>
       </div>
 
       <!-- Upload file (icona, input nascosto) -->
@@ -133,4 +156,3 @@
   <script src="script.js"></script>
 </body>
 </html>
-
