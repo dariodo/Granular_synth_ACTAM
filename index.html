@@ -19,8 +19,8 @@
 
       <!-- Waveform window -->
       <div class="wave-window">
-        <canvas id="waveformCanvas" width="800" height="220"></canvas>
-        <div class="playhead" id="playhead"></div>
+        <canvas id="waveformCanvas" width="800" height="220" aria-label="Waveform display"></canvas>
+        <div class="playhead" id="playhead" aria-hidden="true"></div>
       </div>
 
       <!-- Parametri (slider già esistenti, solo restyling) -->
@@ -33,7 +33,7 @@
           <div id="cursorSwitch" class="ab-switch" role="tablist" aria-label="Cursor selector">
             <button class="ab-btn ab-a" data-cursor="0" role="tab" aria-selected="true" title="Cursor A">
               <span class="led" aria-hidden="true"></span>
-              <span class="txt"></span>
+              <span class="txt">A</span>
             </button>
 
             <div class="ab-track" aria-hidden="true">
@@ -42,7 +42,7 @@
 
             <button class="ab-btn ab-b" data-cursor="1" role="tab" aria-selected="false" title="Cursor B">
               <span class="led" aria-hidden="true"></span>
-              <span class="txt"></span>
+              <span class="txt">B</span>
             </button>
           </div>
 
@@ -137,17 +137,33 @@
       <div class="col center">
         <div class="fader">
           <input type="range" id="volumeRange" class="vertical fader-input" min="0" max="1" step="0.01" value="0.5" aria-label="Volume">
-           <div class="vertical-label">Master Volume</div>
+          <div class="vertical-label">Master Volume</div>
         </div>
       </div>
 
       <!-- Upload file (icona, input nascosto) -->
       <label for="audioFileInput" class="square-btn" title="Carica file audio">
         <svg class="icon" viewBox="0 0 24 24">
-          <path d="M12 3v10m0 0l-4-4m4 4l4-4M5 17h14v2H5z"/>
+          <polygon points="12,5 19,15 5,15" fill="currentColor" stroke="currentColor" stroke-width="3"/>
         </svg>
       </label>
       <input type="file" id="audioFileInput" accept="audio/*" style="display:none"/>
+
+      <!-- === Limiter UI (GR + True-Peak) === -->
+      <div class="limiter-ui">
+        <!-- Barra Gain Reduction (dB) -->
+        <div class="gr-meter" aria-label="Limiter Gain Reduction in dB">
+          <div class="gr-fill" id="grFill"></div>
+          <div class="gr-ticks" aria-hidden="true"></div>
+        </div>
+
+        <!-- True-Peak box (nessun aria-live per evitare suoni/annunci) -->
+        <div class="tp-box safe" id="tpBox">
+          <span class="tp-led" aria-hidden="true"></span>
+          <span class="tp-text"><span id="tpValue">−∞</span> dBTP</span>
+        </div>
+      </div>
+      <!-- /Limiter UI -->
 
     </aside>
   </div><!-- /granular-ui -->

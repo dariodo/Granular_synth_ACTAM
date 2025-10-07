@@ -24,18 +24,24 @@ body{
   background:
     radial-gradient(circle at 1px 1px, #cfcfcf55 1.2px, transparent 1.2px) 0 0/28px 28px,
     #ffffff;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 100dvh;
 }
 
 /* ---- Contenitore principale ---- */
 .granular-ui{
+  width: max-content;
   background: var(--panel-red);
   border-radius: 10px;
   box-shadow: var(--shadow);
-  overflow: hidden;
+  overflow: visible;
   display: grid;
   grid-template-columns: 1fr 112px;
   gap: 0;
-  max-width: 1300px;
+  max-width: 1200px;
   margin: 28px auto;
   border: 6px solid transparent;
 }
@@ -44,7 +50,7 @@ body{
 .center-pane{
   padding: 18px 18px 18px 18px;
   display: grid;
-  grid-template-rows: auto minmax(230px, auto);
+  grid-template-rows: auto auto;
   gap: 14px;
 }
 
@@ -126,16 +132,16 @@ body{
 /* ---- Side rail ---- */
 .side-rail{
   background: var(--rail-grey);
-  border-left: 10px solid var(--panel-red);
   display: grid;
   grid-template-rows: repeat(4, 1fr) auto 1fr;
   align-items: center; justify-items: center;
   padding: 12px 10px; gap: 12px;
+  border-radius: 10px;;
 }
 .square-btn{
   width: 64px; height: 64px; background: var(--panel-red);
   border: 2px solid var(--ink); border-radius: 6px;
-  box-shadow: 0 2px 0 var(--panel-red-dark), 0 6px 14px rgba(0,0,0,.25);
+  box-shadow: 0 6px 14px rgba(0,0,0,.25);
   display: grid; place-items: center; cursor: pointer;
   transition: transform .06s ease, filter .15s ease; user-select: none;
 }
@@ -160,23 +166,14 @@ h1, h2, h3{ margin: 0 0 10px; color: var(--ink); }
 .param-slider:focus-visible,
 .vertical:focus-visible{ outline: 3px solid #000; outline-offset: 2px; }
 
-/* Responsive */
-@media (max-width: 720px){
-  .granular-ui{ grid-template-columns: 1fr; }
-  .side-rail{
-    grid-template-columns: repeat(5, 70px); grid-template-rows: auto;
-    justify-content: center; border-left: none; border-top: 10px solid var(--panel-red);
-  }
-  .center-pane{ grid-template-rows: auto auto; }
-}
-
 /* Bottoni legacy */
 #playButton, #stopButton{ font-weight: 700; letter-spacing:.2px; }
 
 /* Knob layout (2 righe) */
 .params{
   display: grid;
-  grid-auto-flow: column;
+  grid-auto-flow: column dense;
+  grid-auto-columns: min-content;
   grid-template-rows: repeat(2, auto);
   gap: 18px 24px;
   align-items: start; justify-items: center; padding-top: 6px;
@@ -209,6 +206,7 @@ h1, h2, h3{ margin: 0 0 10px; color: var(--ink); }
 .params .col:active .knob-face{ filter: brightness(1.1); }
 .params .col label{ font-size: 13.5px; line-height: 1.15; font-weight: 600; color: #180a06; text-align: center; }
 
+/* Wave */
 :root{ --wave-h: 250px; --wave-pad: 10px; }
 .wave-window{ position: relative; padding: var(--wave-pad); }
 .wave-tools{ position: absolute; top: calc(var(--wave-pad) + 10px); right: calc(var(--wave-pad) + 10px); z-index: 4; pointer-events: none; }
@@ -283,3 +281,61 @@ h1, h2, h3{ margin: 0 0 10px; color: var(--ink); }
   .ab-nub{ width:16px; height:16px; left:4px; }
   #cursorSwitch[data-active="1"] .ab-nub{ left: calc(100% - 20px); }
 }
+
+/* ===== Limiter UI (GR + dBTP) ===== */
+.limiter-ui{
+  display: grid; place-items: center; gap: 8px;
+  width: 100%;
+}
+
+/* Barra GR */
+.gr-meter{
+  position: relative; width: 22px; height: 140px;
+  border: 2px solid #0b0b0b; border-radius: 8px; background: #111;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,.75);
+}
+.gr-meter .gr-ticks{
+  position: absolute; inset: 4px; border-radius: 6px; pointer-events: none; opacity: .55;
+  background:
+    /* Tacche principali a 25/50/75% (→ circa 3/6/9 dB se range 12) */
+    linear-gradient(to bottom, transparent 0, transparent calc(25% - 1px), #333 calc(25% - 1px), #333 calc(25% + 1px), transparent calc(25% + 1px)),
+    linear-gradient(to bottom, transparent 0, transparent calc(50% - 1px), #333 calc(50% - 1px), #333 calc(50% + 1px), transparent calc(50% + 1px)),
+    linear-gradient(to bottom, transparent 0, transparent calc(75% - 1px), #333 calc(75% - 1px), #333 calc(75% + 1px), transparent calc(75% + 1px)),
+    /* Griglia fine */
+    repeating-linear-gradient(to bottom, #262626 0 1px, transparent 1px 10px);
+}
+/* etichetta sotto la barra, orizzontale */
+.gr-meter{ margin-bottom: 16px; } /* crea spazio tra barra e tp-box */
+.gr-meter::after{
+  content:"GR dB";
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 4px);        /* subito sotto la barra */
+  transform: translateX(-50%);  /* centrata orizzontalmente */
+  font-size: 7px;
+  color: #666;
+  letter-spacing: .4px;
+  pointer-events: none;
+}
+
+
+/* Riempimento GR con gradiente verde→giallo→rosso */
+.gr-fill{
+  position: absolute; left: 4px; right: 4px; bottom: 4px; height: 0%;
+  border-radius: 4px;
+  background: linear-gradient(to top, #cf2f2f 0%, #ef8f1f 40%, #35c759 100%);
+  box-shadow: inset 0 0 0 1px #00000040;
+  transition: height .12s ease;
+}
+
+/* True-Peak box */
+.tp-box{
+  display: inline-flex; align-items: center; gap: 8px;
+  background: #fff; border: 2px solid #0b0b0b; border-radius: 10px; padding: 6px 10px;
+  box-shadow: 0 2px 0 #c9c9c9; font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.tp-led{ width: 12px; height: 12px; border-radius: 50%; background: #2a2a2a; box-shadow: inset 0 0 2px #000; }
+.tp-box.safe .tp-led{ background:#2ecc71; box-shadow: 0 0 8px #2ecc7199, inset 0 0 2px #fff6; }
+.tp-box.warn .tp-led{ background:#f1c40f; box-shadow: 0 0 8px #f1c40f99, inset 0 0 2px #fff6; }
+.tp-box.hot  .tp-led{ background:#e74c3c; box-shadow: 0 0 8px #e74c3c99, inset 0 0 2px #fff6; }
+.tp-text{ font-weight: 600; }

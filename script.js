@@ -1,19 +1,48 @@
 // ============================
-// script.js (MAIN THREAD)
+// script.js (MAIN THREAD) – versione PRO modulare
 // ============================
 // - AudioContext, master volume (slider verticale)
 // - Caricamento file e invio buffer mono al Worklet
-// - Parametri per-cursore (A/B) incl. Gain per-cursore
+// - Loudness Map (RMS per finestre) → anti transient
+// - Parametri per-cursore (A/B) incl. Gain per-cursore, con SAB opzionale
 // - Freeze: imposta scanSpeed = 0
-// - Waveform Hi-DPI + picchi precalcolati
+// - Waveform Hi-DPI + picchi precalcolati (FIX: cache invalidata su nuovo file)
 // - Snap-to-zero per Scan Speed, Pan e Pitch (semitoni)
 // - Drag diretto dei marker A/B sopra le barre con highlight
-// - Compatibile con worklet/granular-processor.js
+// - Compatibile con worklet/granular-processor.mod.js
+// - Telemetria limiter: True-Peak (dBTP) + Gain Reduction (GR) → UI
 
+// ----------------------------
+// Helpers UI limiter (hoisted)
+// ----------------------------
+const GR_VISUAL_MAX = 12; // range visivo per GR in dB
+function updateLimiterUI(tpDb, grDb) {
+  const grFill  = document.getElementById('grFill');
+  const tpBox   = document.getElementById('tpBox');
+  const tpValue = document.getElementById('tpValue');
+  if (!grFill || !tpBox || !tpValue) return;
+
+  // GR: dal worklet grDb = 20*log10(env) ⇒ negativo quando riduce
+  let gr = 0;
+  if (Number.isFinite(grDb)) gr = Math.max(0, -grDb);
+  const hPct = Math.max(0, Math.min(1, gr / GR_VISUAL_MAX)) * 100;
+  grFill.style.height = hPct + '%';
+
+  // True-Peak
+  const tp = (tpDb === -Infinity || !Number.isFinite(tpDb)) ? -Infinity : tpDb;
+  tpValue.textContent = (tp === -Infinity) ? '−∞' : tp.toFixed(1);
+  tpBox.classList.remove('safe', 'warn', 'hot');
+  if (tp === -Infinity || tp <= -1.0) tpBox.classList.add('safe');
+  else if (tp <= -0.5)                tpBox.classList.add('warn');
+  else                                 tpBox.classList.add('hot');
+}
+
+// ----------------------------
 // Stato audio
+// ----------------------------
 let audioCtx;
 let masterGain;
-let workletNode;            // AudioWorkletNode (granular-processor)
+let workletNode;            // AudioWorkletNode (granular-processor-pro)
 let audioBuffer = null;     // Per waveform/sintesi
 let monoData = null;        // Float32Array mono (inviato al worklet)
 let isPlaying = false;
@@ -25,10 +54,19 @@ let activeCursor = 0;       // 0 = A, 1 = B
 // Waveform peaks (per disegno ad alta risoluzione)
 let waveformPeaks = null;   // Float32Array: [min0,max0,min1,max1,...]
 let peaksForWidth = 0;
+// FIX: riferimento buffer per cui i peaks sono validi
+let peaksBufferRef = null;
 
 // Drag state per i marker
 let dragState = { active:false, which:-1 };
 let dragLock = [false, false];   // quando trasciniamo, ignoriamo update dal worklet su quel cursore
+
+// SAB param block (opzionale)
+const hasSAB = (typeof SharedArrayBuffer === 'function' && self.crossOriginIsolated === true);
+const CURSOR_STRIDE = 11; // attack,release,density,spread,pan,pitch,cutoff,lfoFreq,lfoDepth,scanSpeed,gain
+const TOTAL_PARAMS  = CURSOR_STRIDE * 2;
+let sabParams = null;      // SharedArrayBuffer
+let sabView   = null;      // Float32Array view
 
 // Helper DOM
 const $ = (id) => document.getElementById(id);
@@ -76,10 +114,32 @@ function rebuildPeaksIfNeeded(){
   resizeWaveformCanvas();
   const canvas = $("waveformCanvas");
   if (!canvas) return;
-  if (peaksForWidth !== canvas.width) {
-    waveformPeaks = buildPeaks(audioBuffer.getChannelData(0), canvas.width);
-    peaksForWidth = canvas.width;
+
+  // Ricostruisci se: (1) canvas width cambiata O (2) è cambiato il buffer sorgente
+  if (peaksForWidth !== canvas.width || peaksBufferRef !== audioBuffer) {
+    waveformPeaks   = buildPeaks(audioBuffer.getChannelData(0), canvas.width);
+    peaksForWidth   = canvas.width;
+    peaksBufferRef  = audioBuffer;
   }
+}
+
+// ============================
+// Shared Param Block (SAB)
+// ============================
+function writeParamsToSAB(cursorIndex, p){
+  if (!sabView) return;
+  const base = cursorIndex * CURSOR_STRIDE;
+  sabView[base + 0]  = p.attack;
+  sabView[base + 1]  = p.release;
+  sabView[base + 2]  = p.density;
+  sabView[base + 3]  = p.spread;
+  sabView[base + 4]  = p.pan;
+  sabView[base + 5]  = p.pitch;     // già playbackRate
+  sabView[base + 6]  = p.cutoff;
+  sabView[base + 7]  = p.lfoFreq;
+  sabView[base + 8]  = p.lfoDepth;
+  sabView[base + 9]  = p.scanSpeed;
+  sabView[base +10]  = p.gain;
 }
 
 // ============================
@@ -92,36 +152,54 @@ async function ensureAudio() {
 
   masterGain = audioCtx.createGain();
   const initialMaster = parseFloat(($("volumeRange") || {}).value);
-  masterGain.gain.value = Number.isFinite(initialMaster) ? initialMaster : 0.5;
+  masterGain.gain.value = Number.isFinite(initialMaster) ? initialMaster : 0.8; // headroom
   masterGain.connect(audioCtx.destination);
 
-  await audioCtx.audioWorklet.addModule("worklet/granular-processor.js");
+  // Worklet MODULARE
+  await audioCtx.audioWorklet.addModule("worklet/granular-processor.mod.js");
 
-  workletNode = new AudioWorkletNode(audioCtx, "granular-processor", {
+  workletNode = new AudioWorkletNode(audioCtx, "granular-processor-pro", {
     numberOfInputs: 0,
     numberOfOutputs: 1,
     outputChannelCount: [2],
-    processorOptions: { sampleRate: audioCtx.sampleRate }
+    processorOptions: { sampleRate: audioCtx.sampleRate, useSAB: hasSAB }
   });
 
   workletNode.connect(masterGain);
 
-  // posizioni dal worklet → aggiorna (con lock per cursori in drag)
+  // Messaggi dal worklet
   workletNode.port.onmessage = (e) => {
     const d = e.data || {};
     if (d.type === "positions" && Array.isArray(d.positions) && d.positions.length === 2) {
       if (!dragLock[0]) positions[0] = clamp01(d.positions[0]);
       if (!dragLock[1]) positions[1] = clamp01(d.positions[1]);
       if (audioBuffer) drawWaveform(audioBuffer);
+      return;
+    }
+    if (d.type === "telemetry") {
+      updateLimiterUI(d.tpDb, d.grDb);
+      return;
     }
   };
 
-  sendAllCursorParams();
+  // Shared param block (opzionale)
+  if (hasSAB) {
+    sabParams = new SharedArrayBuffer(Float32Array.BYTES_PER_ELEMENT * TOTAL_PARAMS);
+    sabView   = new Float32Array(sabParams);
+    writeParamsToSAB(0, cursorParams[0]);
+    writeParamsToSAB(1, cursorParams[1]);
+    workletNode.port.postMessage({ type: "setParamSAB", sab: sabParams, stride: CURSOR_STRIDE });
+  } else {
+    // Fallback: invia i parametri una volta
+    sendAllCursorParams();
+  }
+
   sendPositions();
+  workletNode.port.postMessage({ type: "setPlaying", value: false });
 }
 
 // ============================
-// Caricamento file audio
+// Caricamento file audio (FIX waveform cache)
 // ============================
 $("audioFileInput").addEventListener("change", async (e) => {
   const file = e.target.files[0];
@@ -131,17 +209,31 @@ $("audioFileInput").addEventListener("change", async (e) => {
   const arrayBuffer = await file.arrayBuffer();
   audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
 
+  // FIX: invalida cache peaks e forza resize
+  peaksBufferRef = null;
+  waveformPeaks  = null;
+  peaksForWidth  = 0;
+  resizeWaveformCanvas();
+
+  // mono
   monoData = downmixToMono(audioBuffer);
 
+  // invia buffer + loudness map
   workletNode.port.postMessage(
     { type: "setBuffer", sampleRate: audioBuffer.sampleRate, mono: monoData.buffer },
     [monoData.buffer]
   );
 
-  monoData = downmixToMono(audioBuffer);
+  const loud = buildLoudnessMap(audioBuffer, 2048);
+  workletNode.port.postMessage(
+    { type: "setLoudnessMap", map: { rms: loud.rms.buffer, win: loud.win, sr: loud.sr, len: loud.len } },
+    [loud.rms.buffer]
+  );
 
+  // waveform (ricalcolo sicuro)
   rebuildPeaksIfNeeded();
   drawWaveform(audioBuffer);
+  requestAnimationFrame(() => drawWaveform(audioBuffer)); // extra robustezza
 
   sendAllCursorParams();
   sendPositions();
@@ -156,6 +248,20 @@ function downmixToMono(buf) {
     for (let i = 0; i < n; i++) out[i] += data[i] / chs;
   }
   return out;
+}
+
+// Loudness map (RMS per finestre)
+function buildLoudnessMap(buffer, win = 2048){
+  const sr = buffer.sampleRate;
+  const d  = buffer.getChannelData(0);
+  const nb = Math.ceil(d.length / win);
+  const rms = new Float32Array(nb);
+  for (let b = 0; b < nb; b++) {
+    let acc = 0, start = b * win, end = Math.min(start + win, d.length);
+    for (let i = start; i < end; i++) acc += d[i] * d[i];
+    rms[b] = Math.sqrt(acc / Math.max(1, end - start));
+  }
+  return { rms, win, sr, len: d.length };
 }
 
 // ============================
@@ -224,8 +330,15 @@ perCursorSliderIds.forEach((id) => {
       scanSpeed: parseFloat($("scanSpeedRange").value),
       gain:      parseFloat($("gainRange").value),
     };
+
     if (id === "scanSpeedRange" || id === "panRange" || id === "pitchRange") maybeSnapToZero(el);
-    sendParamsForActiveCursor();
+
+    // Aggiorna worklet (SAB o fallback)
+    if (hasSAB && sabView) {
+      writeParamsToSAB(activeCursor, cursorParams[activeCursor]);
+    } else {
+      sendParamsForActiveCursor();
+    }
   });
 });
 
@@ -314,8 +427,6 @@ $("positionTarget").addEventListener("change", (e) => {
 // ============================
 // Waveform + markers A/B
 // ============================
-
-// disegno dei marker con spessore e highlight
 function drawWaveform(buffer) {
   if (!buffer) return;
 
@@ -330,7 +441,7 @@ function drawWaveform(buffer) {
   const data = buffer.getChannelData(0);
   const amp  = canvas.height / 2;
 
-  if (waveformPeaks && peaksForWidth === canvas.width){
+  if (waveformPeaks && peaksForWidth === canvas.width && peaksBufferRef === buffer){
     ctx.beginPath();
     for (let x = 0; x < canvas.width; x++){
       const min = waveformPeaks[x*2];
@@ -359,6 +470,11 @@ function drawWaveform(buffer) {
     ctx.strokeStyle = "lime";
     ctx.lineWidth = 1 * dpr;
     ctx.stroke();
+
+    // Aggiorna cache per coerenza anche in path "lento"
+    waveformPeaks  = null;
+    peaksForWidth  = canvas.width;
+    peaksBufferRef = buffer;
   }
 
   // Marker A / B
@@ -415,12 +531,9 @@ function drawMarker(ctx, canvas, posNorm, color, label, isActive, isDragging) {
 // ============================
 // Drag dei marker sulla waveform
 // ============================
-
-// hit test: solo SOPRA la barra (tolleranza ~ spessore linea in CSS px)
 function hitWhichMarker(e){
   const canvas = $("waveformCanvas");
   const rect = canvas.getBoundingClientRect();
-  const dpr = window.devicePixelRatio || 1;
 
   const xCss = e.clientX - rect.left;
   const xA = positions[0] * rect.width;
@@ -616,5 +729,67 @@ window.addEventListener("resize", () => {
   });
 })();
 
-// init switch A/B
-document.addEventListener("DOMContentLoaded", initCursorSwitch);
+// init switch A/B e init limiter UI
+document.addEventListener("DOMContentLoaded", () => {
+  initCursorSwitch();
+  updateLimiterUI(-Infinity, 0); // inizializza LED/meter
+});
+
+// ============================
+// PRESET "SAFE" (drop-in)
+// ============================
+function applyPresetSAFE() {
+  const set = (id, v) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.value = String(v);
+    el.dispatchEvent(new Event('input',  { bubbles:true }));
+    el.dispatchEvent(new Event('change', { bubbles:true }));
+  };
+
+  // Master headroom
+  const vol = document.getElementById("volumeRange");
+  if (vol) {
+    vol.value = "0.8";
+    vol.dispatchEvent(new Event('input', { bubbles:true }));
+  }
+
+  // Cursor A
+  setActiveCursor(0);
+  set("attackRange",        0.06);
+  set("releaseRange",       0.10);
+  set("densityRange",       14);
+  set("spreadRange",        0.08);
+  set("panRange",           -0.15);
+  set("pitchRange",         0);
+  set("filterCutoffRange",  5500);
+  set("lfoFreqRange",       0.6);
+  set("lfoDepthRange",      0.18);
+  set("scanSpeedRange",     0.00);
+  set("gainRange",          0.35);
+  if (hasSAB && sabView) writeParamsToSAB(0, cursorParams[0]); else workletNode?.port.postMessage({ type:"setParamsFor", cursor:0, params:cursorParams[0] });
+
+  // Cursor B
+  setActiveCursor(1);
+  set("attackRange",        0.06);
+  set("releaseRange",       0.12);
+  set("densityRange",       12);
+  set("spreadRange",        0.10);
+  set("panRange",           0.15);
+  set("pitchRange",         0);
+  set("filterCutoffRange",  4800);
+  set("lfoFreqRange",       0.7);
+  set("lfoDepthRange",      0.20);
+  set("scanSpeedRange",     0.00);
+  set("gainRange",          0.33);
+  if (hasSAB && sabView) writeParamsToSAB(1, cursorParams[1]); else workletNode?.port.postMessage({ type:"setParamsFor", cursor:1, params:cursorParams[1] });
+
+  // ripristina cursore attivo su A + posizioni
+  setActiveCursor(0);
+  positions[0] = 0.15; positions[1] = 0.65;
+  if (typeof sendPositions === "function") sendPositions();
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  try { applyPresetSAFE(); } catch {}
+});
